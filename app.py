@@ -14,15 +14,32 @@ south = 44.49584275842293
 west  = 11.32117165803459
 east  = 11.346221029006651
 
-# ---- Sidebar inputs ----
+# ---- Session state for storing points ----
+if "start_point" not in st.session_state:
+    st.session_state["start_point"] = (44.4985, 11.3250)
+
+if "end_point" not in st.session_state:
+    st.session_state["end_point"] = (44.5055, 11.3420)
+
 st.sidebar.header("Route settings")
 
-start_lat = st.sidebar.number_input("Start latitude", value=44.4985, format="%.6f")
-start_lon = st.sidebar.number_input("Start longitude", value=11.3250, format="%.6f")
+st.sidebar.write("Click on the map, then:")
 
-end_lat = st.sidebar.number_input("End latitude", value=44.5055, format="%.6f")
-end_lon = st.sidebar.number_input("End longitude", value=11.3420, format="%.6f")
+if st.sidebar.button("Set Start Point"):
+    if "clicked_point" in st.session_state:
+        st.session_state["start_point"] = st.session_state["clicked_point"]
 
+if st.sidebar.button("Set End Point"):
+    if "clicked_point" in st.session_state:
+        st.session_state["end_point"] = st.session_state["clicked_point"]
+
+start_lat, start_lon = st.session_state["start_point"]
+end_lat, end_lon = st.session_state["end_point"]
+
+st.sidebar.write(f"🟢 Start: {start_lat}, {start_lon}")
+st.sidebar.write(f"🔵 End: {end_lat}, {end_lon}")
+
+# ---- Time slider ----
 route_time = st.sidebar.slider(
     "Select time (27 July 2025)",
     min_value=time(10, 0),
@@ -31,6 +48,7 @@ route_time = st.sidebar.slider(
     step=timedelta(minutes=60)
 )
 
+# ---- Alpha slider ----
 alpha = st.sidebar.slider(
     "Alpha (sun penalty)",
     min_value=0,
@@ -43,14 +61,34 @@ compute = st.sidebar.button("Compute routes")
 
 st.write("### Status")
 
+# ---- Always show map (for clicking) ----
+base_map = folium.Map(
+    location=[start_lat, start_lon],
+    zoom_start=15,
+    tiles="OpenStreetMap"
+)
+
+# Markers for start/end
+folium.Marker([start_lat, start_lon], popup="Start", icon=folium.Icon(color="green")).add_to(base_map)
+folium.Marker([end_lat, end_lon], popup="End", icon=folium.Icon(color="blue")).add_to(base_map)
+
+map_data = st_folium(base_map, width=900, height=600)
+
+# Capture clicked point
+if map_data and "last_clicked" in map_data:
+    lat_clicked = map_data["last_clicked"]["lat"]
+    lon_clicked = map_data["last_clicked"]["lng"]
+    st.session_state["clicked_point"] = (lat_clicked, lon_clicked)
+
+# ---- When button pressed ----
 if compute:
     st.write("✅ Loading road network from OpenStreetMap...")
 
     # Load graph
     G = ox.graph_from_bbox(
-    bbox=(north, south, east, west),
-    network_type="walk"
-)
+        bbox=(north, south, east, west),
+        network_type="walk"
+    )
 
     st.write(f"✅ Graph loaded with {len(G.nodes)} nodes and {len(G.edges)} edges")
 
@@ -70,37 +108,37 @@ if compute:
 
     st.success("✅ Routes calculated")
 
-    # ---- Create Folium map ----
-    m = folium.Map(
+    # Create result map
+    result_map = folium.Map(
         location=[start_lat, start_lon],
         zoom_start=15,
         tiles="OpenStreetMap"
     )
 
-    # Plot shortest route (red)
+    # Draw shortest route
     folium.PolyLine(
         [(G.nodes[n]["y"], G.nodes[n]["x"]) for n in route_shortest],
         color="red",
         weight=5,
         opacity=0.8,
         tooltip="Shortest route (sunny)"
-    ).add_to(m)
+    ).add_to(result_map)
 
-    # Plot shaded route (green)
+    # Draw shaded route
     folium.PolyLine(
         [(G.nodes[n]["y"], G.nodes[n]["x"]) for n in route_shaded],
         color="green",
         weight=5,
         opacity=0.8,
         tooltip="Shadow-friendly route"
-    ).add_to(m)
+    ).add_to(result_map)
 
     # Start/end markers
-    folium.Marker([start_lat, start_lon], popup="Start", icon=folium.Icon(color="blue")).add_to(m)
-    folium.Marker([end_lat, end_lon], popup="End", icon=folium.Icon(color="orange")).add_to(m)
+    folium.Marker([start_lat, start_lon], popup="Start", icon=folium.Icon(color="green")).add_to(result_map)
+    folium.Marker([end_lat, end_lon], popup="End", icon=folium.Icon(color="blue")).add_to(result_map)
 
-    # Show the map
-    st_folium(m, width=900, height=600)
-
+    # Show result map
+    st_folium(result_map, width=900, height=600)
 else:
-    st.info("Set parameters and click 'Compute routes'.")
+    st.info("Click on the map, set Start/End points, then click 'Compute routes'.")
+
