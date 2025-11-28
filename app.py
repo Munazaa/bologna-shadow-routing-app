@@ -1,6 +1,7 @@
 import streamlit as st
 from datetime import time
 import osmnx as ox
+from datetime import timedelta
 
 st.set_page_config(page_title="Bologna Shadow Routing", layout="wide")
 st.title("Bologna Shadow-aware Routing")
@@ -19,13 +20,15 @@ start_lon = st.sidebar.number_input("Start longitude", value=11.3250, format="%.
 end_lat = st.sidebar.number_input("End latitude", value=44.5055, format="%.6f")
 end_lon = st.sidebar.number_input("End longitude", value=11.3420, format="%.6f")
 
+
 route_time = st.sidebar.slider(
     "Select time (27 July 2025)",
     min_value=time(10, 0),
     max_value=time(20, 0),
     value=time(15, 0),
-    step=60
+    step=timedelta(minutes=60)
 )
+
 
 alpha = st.sidebar.slider(
     "Alpha (sun penalty)",
