@@ -75,10 +75,13 @@ folium.Marker([end_lat, end_lon], popup="End", icon=folium.Icon(color="blue")).a
 map_data = st_folium(base_map, width=900, height=600)
 
 # Capture clicked point
-if map_data and "last_clicked" in map_data:
-    lat_clicked = map_data["last_clicked"]["lat"]
-    lon_clicked = map_data["last_clicked"]["lng"]
-    st.session_state["clicked_point"] = (lat_clicked, lon_clicked)
+if map_data is not None:
+    if "last_clicked" in map_data and map_data["last_clicked"] is not None:
+        lat_clicked = map_data["last_clicked"].get("lat")
+        lon_clicked = map_data["last_clicked"].get("lng")
+
+        if lat_clicked is not None and lon_clicked is not None:
+            st.session_state["clicked_point"] = (lat_clicked, lon_clicked)
 
 # ---- When button pressed ----
 if compute:
