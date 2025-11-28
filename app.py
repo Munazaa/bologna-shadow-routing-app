@@ -47,7 +47,11 @@ if compute:
     st.write("✅ Loading road network from OpenStreetMap...")
 
     # Load graph
-    G = ox.graph_from_bbox(north, south, east, west, network_type="walk")
+    G = ox.graph_from_bbox(
+    bbox=(north, south, east, west),
+    network_type="walk"
+)
+
     st.write(f"✅ Graph loaded with {len(G.nodes)} nodes and {len(G.edges)} edges")
 
     # Find nearest nodes
