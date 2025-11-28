@@ -2,5 +2,7 @@ streamlit
 osmnx
 networkx
 shapely
-rasterio
 numpy
+pyproj
+folium
+streamlit-folium
