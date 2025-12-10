@@ -3,3 +3,4 @@ osmnx==1.7.0
 networkx
 leafmap
 numpy
+streamlit-folium==0.20.0
