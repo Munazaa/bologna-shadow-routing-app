@@ -76,7 +76,7 @@ if st.session_state.end_point:
 clicks = m.to_streamlit(height=500)
 
 # Handle clicks: first click = start, second = end, then overwrite
-if clicks and len(clicks) > 0:
+if isinstance(clicks, list) and len(clicks) > 0:
     last_click = clicks[-1]  # (lon, lat)
     lat, lon = last_click[1], last_click[0]
 
