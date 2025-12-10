@@ -1,129 +1,157 @@
 import streamlit as st
-from datetime import time, timedelta
 import osmnx as ox
 import networkx as nx
 import leafmap.foliumap as leafmap
 
 st.set_page_config(page_title="Bologna Shadow Routing", layout="wide")
-st.title("Bologna Shadow-aware Routing")
+st.title("Bologna Shadow-aware Routing (15:00 shadows)")
 
-# ---- Your AOI bounding box ----
-north = 44.50776772181009
-south = 44.49584275842293
-west  = 11.32117165803459
-east  = 11.346221029006651
-
-# ---- Cache the OSM graph (FAST) ----
+# ===== Load precomputed shadow-aware graph =====
 @st.cache_resource
 def load_graph():
-    return ox.graph_from_bbox(
-        bbox=(north, south, east, west),
-        network_type="walk"
-    )
+    # GraphML file you uploaded to the repo
+    G = ox.load_graphml("bologna_shadow_graph_15.graphml")
+    return G
 
 G = load_graph()
+st.sidebar.success("Road graph loaded.")
 
-# ---- Session state ----
-if "start_point" not in st.session_state:
-    st.session_state.start_point = None
-
-if "end_point" not in st.session_state:
-    st.session_state.end_point = None
-
-# ---- Sidebar ----
+# ===== Sidebar controls =====
 st.sidebar.header("Route settings")
 
-route_time = st.sidebar.slider(
-    "Select time (27 July 2025)",
-    min_value=time(10, 0),
-    max_value=time(20, 0),
-    value=time(15, 0),
-    step=timedelta(minutes=60)
+# Route mode: user chooses
+route_mode = st.sidebar.selectbox(
+    "Route mode",
+    ["Shortest only", "Shaded only", "Both"],
+    index=2
 )
 
 alpha = st.sidebar.slider(
-    "Alpha (sun penalty)",
+    "Alpha (sun penalty strength)",
     min_value=0,
     max_value=500,
-    value=50,
-    step=10
+    value=100,
+    step=10,
 )
 
-compute = st.sidebar.button("Compute routes")
+compute = st.sidebar.button("Compute route")
 
-# ---- Main Map (clickable) ----
-st.write("### Click on the map to select points")
+# ===== Session state for points =====
+if "start_point" not in st.session_state:
+    st.session_state.start_point = None
+if "end_point" not in st.session_state:
+    st.session_state.end_point = None
 
-m = leafmap.Map(center=[44.5015, 11.334], zoom=15)
+# ===== Helper: compute edge costs given alpha =====
+def update_edge_costs(G, alpha):
+    for u, v, k, data in G.edges(keys=True, data=True):
+        length = data.get("length", 1.0)
+        shadow_val = data.get("shadow", 0.0)  # 0-255, higher = more shade
+
+        # Normalize to 0–1, where 1 = full shade, 0 = full sun
+        shade_factor = shadow_val / 255.0
+
+        # Sun penalty: more sun -> bigger penalty
+        sun_penalty = (1.0 - shade_factor) * alpha
+
+        data["cost_shortest"] = length
+        data["cost_shaded"] = length + sun_penalty
+
+# ===== Clickable map to choose points =====
+st.write("### Click on the map to select start and end points")
+
+# Rough center of your AOI
+center_lat = 44.5015
+center_lon = 11.3340
+
+m = leafmap.Map(center=[center_lat, center_lon], zoom=15)
 m.add_basemap("OpenStreetMap")
 
-clicked = m.to_streamlit(height=600)
-
-# ---- Store clicked coordinates safely ----
-if clicked and len(clicked) > 0:
-    last = clicked[-1]
-    st.session_state.last_clicked = (last[1], last[0])  # (lat, lon)
-
-# ---- Buttons to assign points ----
-col1, col2 = st.columns(2)
-
-with col1:
-    if st.button("✅ Set Start Point"):
-        if "last_clicked" in st.session_state:
-            st.session_state.start_point = st.session_state.last_clicked
-
-with col2:
-    if st.button("✅ Set End Point"):
-        if "last_clicked" in st.session_state:
-            st.session_state.end_point = st.session_state.last_clicked
-
-# ---- Display chosen points ----
+# Show current start/end markers
 if st.session_state.start_point:
-    st.sidebar.success(f"🟢 Start: {st.session_state.start_point}")
+    m.add_marker(list(st.session_state.start_point), popup="Start")
+if st.session_state.end_point:
+    m.add_marker(list(st.session_state.end_point), popup="End")
+
+clicks = m.to_streamlit(height=500)
+
+# Handle clicks: first click = start, second = end, then overwrite
+if clicks and len(clicks) > 0:
+    last_click = clicks[-1]  # (lon, lat)
+    lat, lon = last_click[1], last_click[0]
+
+    if st.session_state.start_point is None:
+        st.session_state.start_point = (lat, lon)
+    elif st.session_state.end_point is None:
+        st.session_state.end_point = (lat, lon)
+    else:
+        # Reset and start again
+        st.session_state.start_point = (lat, lon)
+        st.session_state.end_point = None
+
+# Display chosen coordinates
+if st.session_state.start_point:
+    st.sidebar.write(f"🟢 Start: {st.session_state.start_point}")
+else:
+    st.sidebar.info("Click on the map to set Start point.")
 
 if st.session_state.end_point:
-    st.sidebar.info(f"🔵 End: {st.session_state.end_point}")
+    st.sidebar.write(f"🔵 End: {st.session_state.end_point}")
+else:
+    st.sidebar.info("Click again to set End point.")
 
-# ---- Route calculation ----
+# ===== Routing when user clicks "Compute route" =====
 if compute:
     if not st.session_state.start_point or not st.session_state.end_point:
-        st.error("Please select both Start and End points.")
+        st.error("Please click on the map to set both Start and End points.")
     else:
         start_lat, start_lon = st.session_state.start_point
         end_lat, end_lon = st.session_state.end_point
 
-        st.info("Calculating routes...")
+        st.info("Computing routes...")
 
-        # Find nearest nodes
+        # Update edge costs based on alpha
+        update_edge_costs(G, alpha)
+
+        # Find nearest graph nodes
         orig = ox.distance.nearest_nodes(G, X=start_lon, Y=start_lat)
         dest = ox.distance.nearest_nodes(G, X=end_lon, Y=end_lat)
 
-        # Add edge costs
-        for u, v, data in G.edges(data=True):
-            length = data.get("length", 1)
-            data["cost_shortest"] = length
-            data["cost_shaded"] = length * (1 + alpha / 100)
+        # Always compute both, then choose what to show
+        route_short = nx.shortest_path(G, orig, dest, weight="cost_shortest")
+        route_shade = nx.shortest_path(G, orig, dest, weight="cost_shaded")
 
-        # Shortest + shaded routes
-        route_shortest = nx.shortest_path(G, orig, dest, weight="cost_shortest")
-        route_shaded   = nx.shortest_path(G, orig, dest, weight="cost_shaded")
-
-        st.success("✅ Routes calculated")
-
-        # ---- Show result on map ----
-        rm = leafmap.Map(center=[start_lat, start_lon], zoom=15)
+        # Create result map
+        rm = leafmap.Map(center=[start_lat, start_lon], zoom=16)
         rm.add_basemap("OpenStreetMap")
 
-        # Convert node lists to lat/lon
-        shortest_coords = [(G.nodes[n]["y"], G.nodes[n]["x"]) for n in route_shortest]
-        shaded_coords   = [(G.nodes[n]["y"], G.nodes[n]["x"]) for n in route_shaded]
+        # Helper to turn nodes into lat/lon coords
+        def route_coords(route):
+            return [(G.nodes[n]["y"], G.nodes[n]["x"]) for n in route]
 
-        rm.add_polyline(locations=shortest_coords, color="red", weight=5)
-        rm.add_polyline(locations=shaded_coords, color="green", weight=5)
+        # Draw according to chosen mode
+        if route_mode in ["Shortest only", "Both"]:
+            rm.add_polyline(
+                locations=route_coords(route_short),
+                color="red",
+                weight=5,
+                popup="Shortest"
+            )
+        if route_mode in ["Shaded only", "Both"]:
+            rm.add_polyline(
+                locations=route_coords(route_shade),
+                color="green",
+                weight=5,
+                popup="Shaded"
+            )
 
         rm.add_marker([start_lat, start_lon], popup="Start")
         rm.add_marker([end_lat, end_lon], popup="End")
 
-        rm.to_streamlit(height=600)
+        rm.to_streamlit(height=500)
+        st.success("Routes computed.")
+else:
+    st.info("Click on the map to set Start/End points, then click 'Compute route'.")
+
 
 
