@@ -1,6 +1,7 @@
 streamlit
 osmnx==1.8.1
 networkx==2.8.8
+numpy==1.26.4
 geopandas
 shapely
 matplotlib
