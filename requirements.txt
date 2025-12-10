@@ -1,8 +1,9 @@
 streamlit
-osmnx==1.9.4
-networkx
-leafmap
-numpy
-streamlit-folium==0.20.0
+osmnx==1.8.1
+networkx==2.8.8
 geopandas
-
+shapely
+matplotlib
+leafmap
+pyproj
+rtree
