@@ -1,6 +1,5 @@
 streamlit
-osmnx
+osmnx==1.7.0
 networkx
-folium
-streamlit-folium
 leafmap
+numpy
