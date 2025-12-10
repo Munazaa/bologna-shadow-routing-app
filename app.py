@@ -67,27 +67,33 @@ center_lon = 11.3340
 m = leafmap.Map(center=[center_lat, center_lon], zoom=15)
 m.add_basemap("OpenStreetMap")
 
+# Enable user clicks!
+m.add_gesture_control(True)
+
 # Show current start/end markers
 if st.session_state.start_point:
     m.add_marker(list(st.session_state.start_point), popup="Start")
 if st.session_state.end_point:
     m.add_marker(list(st.session_state.end_point), popup="End")
 
-clicks = m.to_streamlit(height=500)
+# Get click event safely
+returned_map = m.to_streamlit(height=500)
 
-# Handle clicks: first click = start, second = end, then overwrite
-if isinstance(clicks, list) and len(clicks) > 0:
-    last_click = clicks[-1]  # (lon, lat)
-    lat, lon = last_click[1], last_click[0]
+if returned_map and "last_clicked" in returned_map and returned_map["last_clicked"]:
+    click = returned_map["last_clicked"]
+    lat, lon = click["lat"], click["lng"]
 
     if st.session_state.start_point is None:
         st.session_state.start_point = (lat, lon)
+        st.success("Start point set!")
     elif st.session_state.end_point is None:
         st.session_state.end_point = (lat, lon)
+        st.success("End point set!")
     else:
-        # Reset and start again
         st.session_state.start_point = (lat, lon)
         st.session_state.end_point = None
+        st.warning("Resetting — new start point set.")
+
 
 # Display chosen coordinates
 if st.session_state.start_point:
