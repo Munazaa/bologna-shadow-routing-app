@@ -5,7 +5,9 @@ numpy==1.26.4
 geopandas
 shapely
 matplotlib
-leafmap
 pyproj
 rtree
 streamlit_folium
+folium
+scipy
+
