@@ -1,5 +1,5 @@
 streamlit
-osmnx==1.7.0
+osmnx==1.9.4
 networkx
 leafmap
 numpy
