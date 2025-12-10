@@ -4,3 +4,5 @@ networkx
 leafmap
 numpy
 streamlit-folium==0.20.0
+geopandas
+
