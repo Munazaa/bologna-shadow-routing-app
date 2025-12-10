@@ -1,163 +1,94 @@
 import streamlit as st
 import osmnx as ox
 import networkx as nx
-import leafmap.foliumap as leafmap
+from streamlit_folium import st_folium
+import folium
 
 st.set_page_config(page_title="Bologna Shadow Routing", layout="wide")
-st.title("Bologna Shadow-aware Routing (15:00 shadows)")
+st.title("☀️ Bologna Shadow-aware Routing")
 
-# ===== Load precomputed shadow-aware graph =====
+# ===== Load Shadow-Enriched Graph =====
 @st.cache_resource
 def load_graph():
-    # GraphML file you uploaded to the repo
-    G = ox.load_graphml("bologna_shadow_graph_15.graphml")
-    return G
+    return ox.load_graphml("bologna_shadow_graph_15.graphml")
 
 G = load_graph()
-st.sidebar.success("Road graph loaded.")
+st.sidebar.success("Road graph successfully loaded!")
 
-# ===== Sidebar controls =====
-st.sidebar.header("Route settings")
+# ===== Sidebar Controls =====
+st.sidebar.header("Routing Options")
+route_mode = st.sidebar.selectbox("Route mode:", ["Shortest only", "Shaded only", "Both"], index=2)
 
-# Route mode: user chooses
-route_mode = st.sidebar.selectbox(
-    "Route mode",
-    ["Shortest only", "Shaded only", "Both"],
-    index=2
-)
+compute = st.sidebar.button("Compute Route")
 
-alpha = st.sidebar.slider(
-    "Alpha (sun penalty strength)",
-    min_value=0,
-    max_value=500,
-    value=100,
-    step=10,
-)
-
-compute = st.sidebar.button("Compute route")
-
-# ===== Session state for points =====
+# ===== Session state for start/end points =====
 if "start_point" not in st.session_state:
     st.session_state.start_point = None
 if "end_point" not in st.session_state:
     st.session_state.end_point = None
 
-# ===== Helper: compute edge costs given alpha =====
-def update_edge_costs(G, alpha):
-    for u, v, k, data in G.edges(keys=True, data=True):
-        length = data.get("length", 1.0)
-        shadow_val = data.get("shadow", 0.0)  # 0-255, higher = more shade
+# ===== Clickable Map =====
+st.write("### Click to choose your start and end locations")
+center = [44.5015, 11.3340]
+m = folium.Map(location=center, zoom_start=15, tiles="cartodbpositron")
 
-        # Normalize to 0–1, where 1 = full shade, 0 = full sun
-        shade_factor = shadow_val / 255.0
-
-        # Sun penalty: more sun -> bigger penalty
-        sun_penalty = (1.0 - shade_factor) * alpha
-
-        data["cost_shortest"] = length
-        data["cost_shaded"] = length + sun_penalty
-
-# ===== Clickable map to choose points =====
-st.write("### Click on the map to select start and end points")
-
-# Rough center of your AOI
-center_lat = 44.5015
-center_lon = 11.3340
-
-m = leafmap.Map(center=[center_lat, center_lon], zoom=15)
-m.add_basemap("OpenStreetMap")
-
-# Enable user clicks!
-m.add_gesture_control(True)
-
-# Show current start/end markers
+# Show markers if already selected
 if st.session_state.start_point:
-    m.add_marker(list(st.session_state.start_point), popup="Start")
+    folium.Marker(st.session_state.start_point, tooltip="Start", icon=folium.Icon(color="green")).add_to(m)
 if st.session_state.end_point:
-    m.add_marker(list(st.session_state.end_point), popup="End")
+    folium.Marker(st.session_state.end_point, tooltip="End", icon=folium.Icon(color="blue")).add_to(m)
 
-# Get click event safely
-returned_map = m.to_streamlit(height=500)
+# Capture map click
+map_data = st_folium(m, height=500, width=900)
 
-if returned_map and "last_clicked" in returned_map and returned_map["last_clicked"]:
-    click = returned_map["last_clicked"]
-    lat, lon = click["lat"], click["lng"]
+if map_data and map_data["last_clicked"]:
+    lat = map_data["last_clicked"]["lat"]
+    lon = map_data["last_clicked"]["lng"]
 
+    # First click → start, second → end, third resets
     if st.session_state.start_point is None:
         st.session_state.start_point = (lat, lon)
-        st.success("Start point set!")
     elif st.session_state.end_point is None:
         st.session_state.end_point = (lat, lon)
-        st.success("End point set!")
     else:
         st.session_state.start_point = (lat, lon)
         st.session_state.end_point = None
-        st.warning("Resetting — new start point set.")
 
+# Show selected coordinates
+st.sidebar.write(f"🟢 Start: {st.session_state.start_point}")
+st.sidebar.write(f"🔵 End: {st.session_state.end_point}")
 
-# Display chosen coordinates
-if st.session_state.start_point:
-    st.sidebar.write(f"🟢 Start: {st.session_state.start_point}")
-else:
-    st.sidebar.info("Click on the map to set Start point.")
+# ===== Routing Logic =====
+def route_coords(route):
+    return [(G.nodes[n]["y"], G.nodes[n]["x"]) for n in route]
 
-if st.session_state.end_point:
-    st.sidebar.write(f"🔵 End: {st.session_state.end_point}")
-else:
-    st.sidebar.info("Click again to set End point.")
-
-# ===== Routing when user clicks "Compute route" =====
 if compute:
     if not st.session_state.start_point or not st.session_state.end_point:
-        st.error("Please click on the map to set both Start and End points.")
+        st.error("Select both Start and End by clicking on the map.")
     else:
-        start_lat, start_lon = st.session_state.start_point
-        end_lat, end_lon = st.session_state.end_point
+        lat1, lon1 = st.session_state.start_point
+        lat2, lon2 = st.session_state.end_point
 
-        st.info("Computing routes...")
+        st.info("Calculating routes...")
 
-        # Update edge costs based on alpha
-        update_edge_costs(G, alpha)
+        orig = ox.distance.nearest_nodes(G, X=lon1, Y=lat1)
+        dest = ox.distance.nearest_nodes(G, X=lon2, Y=lat2)
 
-        # Find nearest graph nodes
-        orig = ox.distance.nearest_nodes(G, X=start_lon, Y=start_lat)
-        dest = ox.distance.nearest_nodes(G, X=end_lon, Y=end_lat)
-
-        # Always compute both, then choose what to show
+        # Compute both routes always
         route_short = nx.shortest_path(G, orig, dest, weight="cost_shortest")
         route_shade = nx.shortest_path(G, orig, dest, weight="cost_shaded")
 
-        # Create result map
-        rm = leafmap.Map(center=[start_lat, start_lon], zoom=16)
-        rm.add_basemap("OpenStreetMap")
+        rm = folium.Map(location=[lat1, lon1], zoom_start=16, tiles="cartodbpositron")
 
-        # Helper to turn nodes into lat/lon coords
-        def route_coords(route):
-            return [(G.nodes[n]["y"], G.nodes[n]["x"]) for n in route]
-
-        # Draw according to chosen mode
         if route_mode in ["Shortest only", "Both"]:
-            rm.add_polyline(
-                locations=route_coords(route_short),
-                color="red",
-                weight=5,
-                popup="Shortest"
-            )
+            folium.PolyLine(route_coords(route_short), color="red", weight=6, tooltip="Shortest").add_to(rm)
+
         if route_mode in ["Shaded only", "Both"]:
-            rm.add_polyline(
-                locations=route_coords(route_shade),
-                color="green",
-                weight=5,
-                popup="Shaded"
-            )
+            folium.PolyLine(route_coords(route_shade), color="green", weight=6, tooltip="Shaded").add_to(rm)
 
-        rm.add_marker([start_lat, start_lon], popup="Start")
-        rm.add_marker([end_lat, end_lon], popup="End")
+        folium.Marker([lat1, lon1], tooltip="Start", icon=folium.Icon(color="green")).add_to(rm)
+        folium.Marker([lat2, lon2], tooltip="End", icon=folium.Icon(color="blue")).add_to(rm)
 
-        rm.to_streamlit(height=500)
-        st.success("Routes computed.")
-else:
-    st.info("Click on the map to set Start/End points, then click 'Compute route'.")
+        st_folium(rm, height=500, width=900)
 
-
-
+        st.success("Route computed successfully!")
