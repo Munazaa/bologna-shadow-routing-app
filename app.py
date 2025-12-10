@@ -57,15 +57,26 @@ def point_in_aoi(lat, lon):
 
 
 def update_edge_costs(G, alpha):
-    """Attach shortest + shaded costs to each edge."""
+    """Attach shortest + shaded costs to each edge safely."""
     for u, v, k, data in G.edges(keys=True, data=True):
-        length = data.get("length", 1.0)
-        shadow_val = data.get("shadow", 0.0)  # 0–255, higher = more shade
+        length = float(data.get("length", 1.0))
+
+        # Shadow may be None or not numeric → convert safely
+        raw_shadow = data.get("shadow", 0)
+        try:
+            shadow_val = float(raw_shadow)
+        except:
+            shadow_val = 0.0  # treat invalid shadow as full sun
+
+        # Clip to valid range
+        shadow_val = max(0.0, min(shadow_val, 255.0))
+
         shade_factor = shadow_val / 255.0
         sun_penalty = (1.0 - shade_factor) * alpha
 
         data["cost_shortest"] = length
         data["cost_shaded"] = length + sun_penalty
+
 
 
 def safe_nearest_node(G, lat, lon, max_dist=300):
